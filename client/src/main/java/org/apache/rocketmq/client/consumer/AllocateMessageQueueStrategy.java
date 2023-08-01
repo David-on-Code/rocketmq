@@ -29,9 +29,9 @@ public interface AllocateMessageQueueStrategy {
      *
      * @param consumerGroup current consumer group
      * @param currentCID current consumer id
-     * @param mqAll message queue set in current topic
-     * @param cidAll consumer set in current consumer group
-     * @return The allocate result of given strategy
+     * @param mqAll message queue set in current topic  当前topic的所有queue实例引用
+     * @param cidAll consumer set in current consumer group  当前 consumer群组下所有的consumer id set集合
+     * @return The allocate result of given strategy  根据策略给当前consumer分配的queue列表
      */
     List<MessageQueue> allocate(
         final String consumerGroup,

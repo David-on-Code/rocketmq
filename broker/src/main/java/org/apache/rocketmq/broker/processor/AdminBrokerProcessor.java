@@ -16,24 +16,24 @@
  */
 package org.apache.rocketmq.broker.processor;
 
-import com.alibaba.fastjson.JSON;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
-import org.apache.rocketmq.acl.AccessValidator;
-import org.apache.rocketmq.acl.plain.PlainAccessValidator;
+import java.io.UnsupportedEncodingException;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.rocketmq.broker.BrokerController;
 import org.apache.rocketmq.broker.client.ClientChannelInfo;
 import org.apache.rocketmq.broker.client.ConsumerGroupInfo;
-import org.apache.rocketmq.broker.filter.ConsumerFilterData;
-import org.apache.rocketmq.broker.filter.ExpressionMessageFilter;
-import org.apache.rocketmq.common.protocol.body.ProducerTableInfo;
-import org.apache.rocketmq.common.protocol.header.GetAllProducerInfoRequestHeader;
-import org.apache.rocketmq.common.topic.TopicValidator;
-import org.apache.rocketmq.broker.transaction.queue.TransactionalMessageUtil;
-import org.apache.rocketmq.common.AclConfig;
 import org.apache.rocketmq.common.MQVersion;
 import org.apache.rocketmq.common.MixAll;
-import org.apache.rocketmq.common.PlainAccessConfig;
 import org.apache.rocketmq.common.TopicConfig;
 import org.apache.rocketmq.common.UtilAll;
 import org.apache.rocketmq.common.admin.ConsumeStats;
@@ -41,10 +41,7 @@ import org.apache.rocketmq.common.admin.OffsetWrapper;
 import org.apache.rocketmq.common.admin.TopicOffset;
 import org.apache.rocketmq.common.admin.TopicStatsTable;
 import org.apache.rocketmq.common.constant.LoggerName;
-import org.apache.rocketmq.common.message.MessageAccessor;
-import org.apache.rocketmq.common.message.MessageConst;
 import org.apache.rocketmq.common.message.MessageDecoder;
-import org.apache.rocketmq.common.message.MessageExt;
 import org.apache.rocketmq.common.message.MessageId;
 import org.apache.rocketmq.common.message.MessageQueue;
 import org.apache.rocketmq.common.protocol.RequestCode;
@@ -52,7 +49,6 @@ import org.apache.rocketmq.common.protocol.ResponseCode;
 import org.apache.rocketmq.common.protocol.body.BrokerStatsData;
 import org.apache.rocketmq.common.protocol.body.BrokerStatsItem;
 import org.apache.rocketmq.common.protocol.body.Connection;
-import org.apache.rocketmq.common.protocol.body.ConsumeQueueData;
 import org.apache.rocketmq.common.protocol.body.ConsumeStatsList;
 import org.apache.rocketmq.common.protocol.body.ConsumerConnection;
 import org.apache.rocketmq.common.protocol.body.GroupList;
@@ -60,7 +56,6 @@ import org.apache.rocketmq.common.protocol.body.KVTable;
 import org.apache.rocketmq.common.protocol.body.LockBatchRequestBody;
 import org.apache.rocketmq.common.protocol.body.LockBatchResponseBody;
 import org.apache.rocketmq.common.protocol.body.ProducerConnection;
-import org.apache.rocketmq.common.protocol.body.QueryConsumeQueueResponseBody;
 import org.apache.rocketmq.common.protocol.body.QueryConsumeTimeSpanBody;
 import org.apache.rocketmq.common.protocol.body.QueryCorrectionOffsetBody;
 import org.apache.rocketmq.common.protocol.body.QueueTimeSpan;
@@ -68,15 +63,10 @@ import org.apache.rocketmq.common.protocol.body.TopicList;
 import org.apache.rocketmq.common.protocol.body.UnlockBatchRequestBody;
 import org.apache.rocketmq.common.protocol.header.CloneGroupOffsetRequestHeader;
 import org.apache.rocketmq.common.protocol.header.ConsumeMessageDirectlyResultRequestHeader;
-import org.apache.rocketmq.common.protocol.header.CreateAccessConfigRequestHeader;
 import org.apache.rocketmq.common.protocol.header.CreateTopicRequestHeader;
-import org.apache.rocketmq.common.protocol.header.DeleteAccessConfigRequestHeader;
 import org.apache.rocketmq.common.protocol.header.DeleteSubscriptionGroupRequestHeader;
 import org.apache.rocketmq.common.protocol.header.DeleteTopicRequestHeader;
 import org.apache.rocketmq.common.protocol.header.GetAllTopicConfigResponseHeader;
-import org.apache.rocketmq.common.protocol.header.GetBrokerAclConfigResponseHeader;
-import org.apache.rocketmq.common.protocol.header.GetBrokerClusterAclConfigResponseBody;
-import org.apache.rocketmq.common.protocol.header.GetBrokerClusterAclConfigResponseHeader;
 import org.apache.rocketmq.common.protocol.header.GetBrokerConfigResponseHeader;
 import org.apache.rocketmq.common.protocol.header.GetConsumeStatsInBrokerHeader;
 import org.apache.rocketmq.common.protocol.header.GetConsumeStatsRequestHeader;
@@ -91,15 +81,12 @@ import org.apache.rocketmq.common.protocol.header.GetMinOffsetRequestHeader;
 import org.apache.rocketmq.common.protocol.header.GetMinOffsetResponseHeader;
 import org.apache.rocketmq.common.protocol.header.GetProducerConnectionListRequestHeader;
 import org.apache.rocketmq.common.protocol.header.GetTopicStatsInfoRequestHeader;
-import org.apache.rocketmq.common.protocol.header.QueryConsumeQueueRequestHeader;
 import org.apache.rocketmq.common.protocol.header.QueryConsumeTimeSpanRequestHeader;
 import org.apache.rocketmq.common.protocol.header.QueryCorrectionOffsetHeader;
 import org.apache.rocketmq.common.protocol.header.QueryTopicConsumeByWhoRequestHeader;
 import org.apache.rocketmq.common.protocol.header.ResetOffsetRequestHeader;
-import org.apache.rocketmq.common.protocol.header.ResumeCheckHalfMessageRequestHeader;
 import org.apache.rocketmq.common.protocol.header.SearchOffsetRequestHeader;
 import org.apache.rocketmq.common.protocol.header.SearchOffsetResponseHeader;
-import org.apache.rocketmq.common.protocol.header.UpdateGlobalWhiteAddrsConfigRequestHeader;
 import org.apache.rocketmq.common.protocol.header.ViewBrokerStatsDataRequestHeader;
 import org.apache.rocketmq.common.protocol.header.filtersrv.RegisterFilterServerRequestHeader;
 import org.apache.rocketmq.common.protocol.header.filtersrv.RegisterFilterServerResponseHeader;
@@ -107,42 +94,20 @@ import org.apache.rocketmq.common.protocol.heartbeat.SubscriptionData;
 import org.apache.rocketmq.common.stats.StatsItem;
 import org.apache.rocketmq.common.stats.StatsSnapshot;
 import org.apache.rocketmq.common.subscription.SubscriptionGroupConfig;
-import org.apache.rocketmq.filter.util.BitsArray;
-import org.apache.rocketmq.logging.InternalLogger;
-import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.remoting.common.RemotingHelper;
 import org.apache.rocketmq.remoting.exception.RemotingCommandException;
 import org.apache.rocketmq.remoting.exception.RemotingTimeoutException;
-import org.apache.rocketmq.remoting.netty.AsyncNettyRequestProcessor;
+import org.apache.rocketmq.remoting.netty.NettyRequestProcessor;
 import org.apache.rocketmq.remoting.protocol.LanguageCode;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
-import org.apache.rocketmq.remoting.protocol.RemotingSysResponseCode;
-import org.apache.rocketmq.store.ConsumeQueue;
-import org.apache.rocketmq.store.ConsumeQueueExt;
 import org.apache.rocketmq.store.DefaultMessageStore;
-import org.apache.rocketmq.store.MessageExtBrokerInner;
-import org.apache.rocketmq.store.MessageFilter;
-import org.apache.rocketmq.store.MessageStore;
-import org.apache.rocketmq.store.PutMessageResult;
-import org.apache.rocketmq.store.PutMessageStatus;
 import org.apache.rocketmq.store.SelectMappedBufferResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.UnsupportedEncodingException;
-import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.ConcurrentMap;
-import org.apache.rocketmq.store.config.BrokerRole;
-
-public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
-    private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
+public class AdminBrokerProcessor implements NettyRequestProcessor {
+    private static final Logger log = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final BrokerController brokerController;
 
     public AdminBrokerProcessor(final BrokerController brokerController) {
@@ -150,8 +115,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
     }
 
     @Override
-    public RemotingCommand processRequest(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         switch (request.getCode()) {
             case RequestCode.UPDATE_AND_CREATE_TOPIC:
                 return this.updateAndCreateTopic(ctx, request);
@@ -189,8 +153,6 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
                 return this.getConsumerConnectionList(ctx, request);
             case RequestCode.GET_PRODUCER_CONNECTION_LIST:
                 return this.getProducerConnectionList(ctx, request);
-            case RequestCode.GET_ALL_PRODUCER_INFO:
-                return this.getAllProducerInfo(ctx, request);
             case RequestCode.GET_CONSUME_STATS:
                 return this.getConsumeStats(ctx, request);
             case RequestCode.GET_ALL_CONSUMER_OFFSET:
@@ -211,8 +173,6 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
                 return this.getSystemTopicListFromBroker(ctx, request);
             case RequestCode.CLEAN_EXPIRED_CONSUMEQUEUE:
                 return this.cleanExpiredConsumeQueue();
-            case RequestCode.DELETE_EXPIRED_COMMITLOG:
-                return this.deleteExpiredCommitLog();
             case RequestCode.CLEAN_UNUSED_TOPIC:
                 return this.cleanUnusedTopic();
             case RequestCode.GET_CONSUMER_RUNNING_INFO:
@@ -227,23 +187,11 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
                 return ViewBrokerStatsData(ctx, request);
             case RequestCode.GET_BROKER_CONSUME_STATS:
                 return fetchAllConsumeStatsInBroker(ctx, request);
-            case RequestCode.QUERY_CONSUME_QUEUE:
-                return queryConsumeQueue(ctx, request);
-            case RequestCode.UPDATE_AND_CREATE_ACL_CONFIG:
-                return updateAndCreateAccessConfig(ctx, request);
-            case RequestCode.DELETE_ACL_CONFIG:
-                return deleteAccessConfig(ctx, request);
-            case RequestCode.GET_BROKER_CLUSTER_ACL_INFO:
-                return getBrokerAclConfigVersion(ctx, request);
-            case RequestCode.UPDATE_GLOBAL_WHITE_ADDRS_CONFIG:
-                return updateGlobalWhiteAddrsConfig(ctx, request);
-            case RequestCode.RESUME_CHECK_HALF_MESSAGE:
-                return resumeCheckHalfMessage(ctx, request);
-            case RequestCode.GET_BROKER_CLUSTER_ACL_CONFIG:
-                return getBrokerClusterAclConfig(ctx, request);
             default:
-                return getUnknownCmdResponse(ctx, request);
+                break;
         }
+
+        return null;
     }
 
     @Override
@@ -251,26 +199,30 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return false;
     }
 
-    private synchronized RemotingCommand updateAndCreateTopic(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand updateAndCreateTopic(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        if (validateSlave(response)) {
-            return response;
-        }
         final CreateTopicRequestHeader requestHeader =
             (CreateTopicRequestHeader) request.decodeCommandCustomHeader(CreateTopicRequestHeader.class);
         log.info("updateAndCreateTopic called by {}", RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
 
-        String topic = requestHeader.getTopic();
-
-        if (!TopicValidator.validateTopic(topic, response)) {
+        if (requestHeader.getTopic().equals(this.brokerController.getBrokerConfig().getBrokerClusterName())) {
+            String errorMsg = "the topic[" + requestHeader.getTopic() + "] is conflict with system reserved words.";
+            log.warn(errorMsg);
+            response.setCode(ResponseCode.SYSTEM_ERROR);
+            response.setRemark(errorMsg);
             return response;
         }
-        if (TopicValidator.isSystemTopic(topic, response)) {
-            return response;
+
+        try {
+            response.setCode(ResponseCode.SUCCESS);
+            response.setOpaque(request.getOpaque());
+            response.markResponseType();
+            response.setRemark(null);
+            ctx.writeAndFlush(response);
+        } catch (Exception e) {
         }
 
-        TopicConfig topicConfig = new TopicConfig(topic);
+        TopicConfig topicConfig = new TopicConfig(requestHeader.getTopic());
         topicConfig.setReadQueueNums(requestHeader.getReadQueueNums());
         topicConfig.setWriteQueueNums(requestHeader.getWriteQueueNums());
         topicConfig.setTopicFilterType(requestHeader.getTopicFilterTypeEnum());
@@ -278,211 +230,23 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         topicConfig.setTopicSysFlag(requestHeader.getTopicSysFlag() == null ? 0 : requestHeader.getTopicSysFlag());
 
         this.brokerController.getTopicConfigManager().updateTopicConfig(topicConfig);
-
-        this.brokerController.registerIncrementBrokerData(topicConfig, this.brokerController.getTopicConfigManager().getDataVersion());
-
-        response.setCode(ResponseCode.SUCCESS);
-        return response;
+        this.brokerController.registerBrokerAll(false, true);
+        return null;
     }
 
-    private synchronized RemotingCommand deleteTopic(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand deleteTopic(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        if (validateSlave(response)) {
-            return response;
-        }
         DeleteTopicRequestHeader requestHeader =
             (DeleteTopicRequestHeader) request.decodeCommandCustomHeader(DeleteTopicRequestHeader.class);
 
         log.info("deleteTopic called by {}", RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
 
-        String topic = requestHeader.getTopic();
-        if (!TopicValidator.validateTopic(topic, response)) {
-            return response;
-        }
-        if (TopicValidator.isSystemTopic(topic, response)) {
-            return response;
-        }
-
-        if (MixAll.isLmq(topic)) {
-            this.brokerController.getMessageStore().cleanUnusedLmqTopic(topic);
-            response.setCode(ResponseCode.SUCCESS);
-            response.setRemark(null);
-            return response;
-        }
-
-        this.brokerController.getTopicConfigManager().deleteTopicConfig(topic);
+        this.brokerController.getTopicConfigManager().deleteTopicConfig(requestHeader.getTopic());
         this.brokerController.getMessageStore()
             .cleanUnusedTopic(this.brokerController.getTopicConfigManager().getTopicConfigTable().keySet());
-        if (this.brokerController.getBrokerConfig().isAutoDeleteUnusedStats()) {
-            this.brokerController.getBrokerStatsManager().onTopicDeleted(requestHeader.getTopic());
-        }
+
         response.setCode(ResponseCode.SUCCESS);
         response.setRemark(null);
-        return response;
-    }
-
-    private synchronized RemotingCommand updateAndCreateAccessConfig(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
-        final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-
-        final CreateAccessConfigRequestHeader requestHeader =
-            (CreateAccessConfigRequestHeader) request.decodeCommandCustomHeader(CreateAccessConfigRequestHeader.class);
-
-        PlainAccessConfig accessConfig = new PlainAccessConfig();
-        accessConfig.setAccessKey(requestHeader.getAccessKey());
-        accessConfig.setSecretKey(requestHeader.getSecretKey());
-        accessConfig.setWhiteRemoteAddress(requestHeader.getWhiteRemoteAddress());
-        accessConfig.setDefaultTopicPerm(requestHeader.getDefaultTopicPerm());
-        accessConfig.setDefaultGroupPerm(requestHeader.getDefaultGroupPerm());
-        accessConfig.setTopicPerms(UtilAll.split(requestHeader.getTopicPerms(), ","));
-        accessConfig.setGroupPerms(UtilAll.split(requestHeader.getGroupPerms(), ","));
-        accessConfig.setAdmin(requestHeader.isAdmin());
-        try {
-
-            AccessValidator accessValidator = this.brokerController.getAccessValidatorMap().get(PlainAccessValidator.class);
-            if (accessValidator.updateAccessConfig(accessConfig)) {
-                response.setCode(ResponseCode.SUCCESS);
-                response.setOpaque(request.getOpaque());
-                response.markResponseType();
-                response.setRemark(null);
-                ctx.writeAndFlush(response);
-            } else {
-                String errorMsg = "The accesskey[" + requestHeader.getAccessKey() + "] corresponding to accessConfig has been updated failed.";
-                log.warn(errorMsg);
-                response.setCode(ResponseCode.UPDATE_AND_CREATE_ACL_CONFIG_FAILED);
-                response.setRemark(errorMsg);
-                return response;
-            }
-        } catch (Exception e) {
-            log.error("Failed to generate a proper update accessvalidator response", e);
-            response.setCode(ResponseCode.UPDATE_AND_CREATE_ACL_CONFIG_FAILED);
-            response.setRemark(e.getMessage());
-            return response;
-        }
-
-        return null;
-    }
-
-    private synchronized RemotingCommand deleteAccessConfig(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
-        final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-
-        final DeleteAccessConfigRequestHeader requestHeader =
-            (DeleteAccessConfigRequestHeader) request.decodeCommandCustomHeader(DeleteAccessConfigRequestHeader.class);
-        log.info("DeleteAccessConfig called by {}", RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
-
-        try {
-            String accessKey = requestHeader.getAccessKey();
-            AccessValidator accessValidator = this.brokerController.getAccessValidatorMap().get(PlainAccessValidator.class);
-            if (accessValidator.deleteAccessConfig(accessKey)) {
-                response.setCode(ResponseCode.SUCCESS);
-                response.setOpaque(request.getOpaque());
-                response.markResponseType();
-                response.setRemark(null);
-                ctx.writeAndFlush(response);
-            } else {
-                String errorMsg = "The accesskey[" + requestHeader.getAccessKey() + "] corresponding to accessConfig has been deleted failed.";
-                log.warn(errorMsg);
-                response.setCode(ResponseCode.DELETE_ACL_CONFIG_FAILED);
-                response.setRemark(errorMsg);
-                return response;
-            }
-
-        } catch (Exception e) {
-            log.error("Failed to generate a proper delete accessvalidator response", e);
-            response.setCode(ResponseCode.DELETE_ACL_CONFIG_FAILED);
-            response.setRemark(e.getMessage());
-            return response;
-        }
-
-        return null;
-    }
-
-    private synchronized RemotingCommand updateGlobalWhiteAddrsConfig(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
-
-        final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-
-        final UpdateGlobalWhiteAddrsConfigRequestHeader requestHeader =
-            (UpdateGlobalWhiteAddrsConfigRequestHeader) request.decodeCommandCustomHeader(UpdateGlobalWhiteAddrsConfigRequestHeader.class);
-
-        try {
-            AccessValidator accessValidator = this.brokerController.getAccessValidatorMap().get(PlainAccessValidator.class);
-            if (accessValidator.updateGlobalWhiteAddrsConfig(UtilAll.split(requestHeader.getGlobalWhiteAddrs(), ","),
-                requestHeader.getAclFileFullPath())) {
-                response.setCode(ResponseCode.SUCCESS);
-                response.setOpaque(request.getOpaque());
-                response.markResponseType();
-                response.setRemark(null);
-                ctx.writeAndFlush(response);
-            } else {
-                String errorMsg = "The globalWhiteAddresses[" + requestHeader.getGlobalWhiteAddrs() + "] has been updated failed.";
-                log.warn(errorMsg);
-                response.setCode(ResponseCode.UPDATE_GLOBAL_WHITE_ADDRS_CONFIG_FAILED);
-                response.setRemark(errorMsg);
-                return response;
-            }
-        } catch (Exception e) {
-            log.error("Failed to generate a proper update globalWhiteAddresses response", e);
-            response.setCode(ResponseCode.UPDATE_GLOBAL_WHITE_ADDRS_CONFIG_FAILED);
-            response.setRemark(e.getMessage());
-            return response;
-        }
-
-        return null;
-    }
-
-    private RemotingCommand getBrokerAclConfigVersion(ChannelHandlerContext ctx, RemotingCommand request) {
-
-        final RemotingCommand response = RemotingCommand.createResponseCommand(GetBrokerAclConfigResponseHeader.class);
-
-        final GetBrokerAclConfigResponseHeader responseHeader = (GetBrokerAclConfigResponseHeader)response.readCustomHeader();
-
-        try {
-            AccessValidator accessValidator = this.brokerController.getAccessValidatorMap().get(PlainAccessValidator.class);
-
-            responseHeader.setAllAclFileVersion(JSON.toJSONString(accessValidator.getAllAclConfigVersion()));
-            responseHeader.setVersion(accessValidator.getAclConfigVersion());
-            responseHeader.setBrokerAddr(this.brokerController.getBrokerAddr());
-            responseHeader.setBrokerName(this.brokerController.getBrokerConfig().getBrokerName());
-            responseHeader.setClusterName(this.brokerController.getBrokerConfig().getBrokerClusterName());
-
-            response.setCode(ResponseCode.SUCCESS);
-            response.setRemark(null);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to generate a proper getBrokerAclConfigVersion response", e);
-        }
-
-        return null;
-    }
-
-    private RemotingCommand getBrokerClusterAclConfig(ChannelHandlerContext ctx, RemotingCommand request) {
-
-        final RemotingCommand response = RemotingCommand.createResponseCommand(GetBrokerClusterAclConfigResponseHeader.class);
-
-        try {
-            AccessValidator accessValidator = this.brokerController.getAccessValidatorMap().get(PlainAccessValidator.class);
-            GetBrokerClusterAclConfigResponseBody body = new GetBrokerClusterAclConfigResponseBody();
-            AclConfig aclConfig = accessValidator.getAllAclConfig();
-            body.setGlobalWhiteAddrs(aclConfig.getGlobalWhiteAddrs());
-            body.setPlainAccessConfigs(aclConfig.getPlainAccessConfigs());
-            response.setCode(ResponseCode.SUCCESS);
-            response.setBody(body.encode());
-            response.setRemark(null);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to generate a proper getBrokerClusterAclConfig response", e);
-        }
-
-        return null;
-    }
-
-    private RemotingCommand getUnknownCmdResponse(ChannelHandlerContext ctx, RemotingCommand request) {
-        String error = " request type " + request.getCode() + " not supported";
-        final RemotingCommand response =
-                RemotingCommand.createResponseCommand(RemotingSysResponseCode.REQUEST_CODE_NOT_SUPPORTED, error);
         return response;
     }
 
@@ -515,7 +279,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private synchronized RemotingCommand updateBrokerConfig(ChannelHandlerContext ctx, RemotingCommand request) {
+    private RemotingCommand updateBrokerConfig(ChannelHandlerContext ctx, RemotingCommand request) {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
 
         log.info("updateBrokerConfig called by {}", RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
@@ -529,8 +293,8 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
                     log.info("updateBrokerConfig, new config: [{}] client: {} ", properties, ctx.channel().remoteAddress());
                     this.brokerController.getConfiguration().update(properties);
                     if (properties.containsKey("brokerPermission")) {
+                        this.brokerController.registerBrokerAll(false, false);
                         this.brokerController.getTopicConfigManager().getDataVersion().nextVersion();
-                        this.brokerController.registerBrokerAll(false, false, true);
                     }
                 } else {
                     log.error("string2Properties error");
@@ -576,8 +340,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand searchOffsetByTimestamp(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand searchOffsetByTimestamp(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(SearchOffsetResponseHeader.class);
         final SearchOffsetResponseHeader responseHeader = (SearchOffsetResponseHeader) response.readCustomHeader();
         final SearchOffsetRequestHeader requestHeader =
@@ -593,14 +356,13 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand getMaxOffset(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand getMaxOffset(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(GetMaxOffsetResponseHeader.class);
         final GetMaxOffsetResponseHeader responseHeader = (GetMaxOffsetResponseHeader) response.readCustomHeader();
         final GetMaxOffsetRequestHeader requestHeader =
             (GetMaxOffsetRequestHeader) request.decodeCommandCustomHeader(GetMaxOffsetRequestHeader.class);
 
-        long offset = this.brokerController.getMessageStore().getMaxOffsetInQueue(requestHeader.getTopic(), requestHeader.getQueueId());
+        long offset = this.brokerController.getMessageStore().getMaxOffsetInQuque(requestHeader.getTopic(), requestHeader.getQueueId());
 
         responseHeader.setOffset(offset);
 
@@ -609,14 +371,13 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand getMinOffset(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand getMinOffset(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(GetMinOffsetResponseHeader.class);
         final GetMinOffsetResponseHeader responseHeader = (GetMinOffsetResponseHeader) response.readCustomHeader();
         final GetMinOffsetRequestHeader requestHeader =
             (GetMinOffsetRequestHeader) request.decodeCommandCustomHeader(GetMinOffsetRequestHeader.class);
 
-        long offset = this.brokerController.getMessageStore().getMinOffsetInQueue(requestHeader.getTopic(), requestHeader.getQueueId());
+        long offset = this.brokerController.getMessageStore().getMinOffsetInQuque(requestHeader.getTopic(), requestHeader.getQueueId());
 
         responseHeader.setOffset(offset);
         response.setCode(ResponseCode.SUCCESS);
@@ -624,8 +385,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand getEarliestMsgStoretime(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand getEarliestMsgStoretime(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(GetEarliestMsgStoretimeResponseHeader.class);
         final GetEarliestMsgStoretimeResponseHeader responseHeader = (GetEarliestMsgStoretimeResponseHeader) response.readCustomHeader();
         final GetEarliestMsgStoretimeRequestHeader requestHeader =
@@ -654,14 +414,13 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand lockBatchMQ(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand lockBatchMQ(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         LockBatchRequestBody requestBody = LockBatchRequestBody.decode(request.getBody(), LockBatchRequestBody.class);
 
-        Set<MessageQueue> lockOKMQSet = this.brokerController.getRebalanceLockManager().tryLockBatch(
-            requestBody.getConsumerGroup(),
-            requestBody.getMqSet(),
+        Set<MessageQueue> lockOKMQSet = this.brokerController.getRebalanceLockManager().tryLockBatch(//
+            requestBody.getConsumerGroup(), //
+            requestBody.getMqSet(), //
             requestBody.getClientId());
 
         LockBatchResponseBody responseBody = new LockBatchResponseBody();
@@ -673,14 +432,13 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand unlockBatchMQ(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand unlockBatchMQ(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         UnlockBatchRequestBody requestBody = UnlockBatchRequestBody.decode(request.getBody(), UnlockBatchRequestBody.class);
 
-        this.brokerController.getRebalanceLockManager().unlockBatch(
-            requestBody.getConsumerGroup(),
-            requestBody.getMqSet(),
+        this.brokerController.getRebalanceLockManager().unlockBatch(//
+            requestBody.getConsumerGroup(), //
+            requestBody.getMqSet(), //
             requestBody.getClientId());
 
         response.setCode(ResponseCode.SUCCESS);
@@ -691,9 +449,6 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
     private RemotingCommand updateAndCreateSubscriptionGroup(ChannelHandlerContext ctx, RemotingCommand request)
         throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        if (validateSlave(response)) {
-            return response;
-        }
 
         log.info("updateAndCreateSubscriptionGroup called by {}", RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
 
@@ -707,8 +462,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand getAllSubscriptionGroup(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand getAllSubscriptionGroup(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         String content = this.brokerController.getSubscriptionGroupManager().encode();
         if (content != null && content.length() > 0) {
@@ -734,12 +488,8 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand deleteSubscriptionGroup(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand deleteSubscriptionGroup(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        if (validateSlave(response)) {
-            return response;
-        }
         DeleteSubscriptionGroupRequestHeader requestHeader =
             (DeleteSubscriptionGroupRequestHeader) request.decodeCommandCustomHeader(DeleteSubscriptionGroupRequestHeader.class);
 
@@ -747,20 +497,12 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
 
         this.brokerController.getSubscriptionGroupManager().deleteSubscriptionGroupConfig(requestHeader.getGroupName());
 
-        if (requestHeader.isRemoveOffset()) {
-            this.brokerController.getConsumerOffsetManager().removeOffset(requestHeader.getGroupName());
-        }
-
-        if (this.brokerController.getBrokerConfig().isAutoDeleteUnusedStats()) {
-            this.brokerController.getBrokerStatsManager().onGroupDeleted(requestHeader.getGroupName());
-        }
         response.setCode(ResponseCode.SUCCESS);
         response.setRemark(null);
         return response;
     }
 
-    private RemotingCommand getTopicStatsInfo(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand getTopicStatsInfo(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         final GetTopicStatsInfoRequestHeader requestHeader =
             (GetTopicStatsInfoRequestHeader) request.decodeCommandCustomHeader(GetTopicStatsInfoRequestHeader.class);
@@ -781,11 +523,11 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
             mq.setQueueId(i);
 
             TopicOffset topicOffset = new TopicOffset();
-            long min = this.brokerController.getMessageStore().getMinOffsetInQueue(topic, i);
+            long min = this.brokerController.getMessageStore().getMinOffsetInQuque(topic, i);
             if (min < 0)
                 min = 0;
 
-            long max = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, i);
+            long max = this.brokerController.getMessageStore().getMaxOffsetInQuque(topic, i);
             if (max < 0)
                 max = 0;
 
@@ -808,8 +550,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand getConsumerConnectionList(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand getConsumerConnectionList(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         final GetConsumerConnectionListRequestHeader requestHeader =
             (GetConsumerConnectionListRequestHeader) request.decodeCommandCustomHeader(GetConsumerConnectionListRequestHeader.class);
@@ -848,31 +589,13 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand getAllProducerInfo(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
-        final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        final GetAllProducerInfoRequestHeader requestHeader =
-                (GetAllProducerInfoRequestHeader) request.decodeCommandCustomHeader(GetAllProducerInfoRequestHeader.class);
-
-        ProducerTableInfo producerTable = this.brokerController.getProducerManager().getProducerTable();
-        if (producerTable != null) {
-            byte[] body = producerTable.encode();
-            response.setBody(body);
-            response.setCode(ResponseCode.SUCCESS);
-            response.setRemark(null);
-            return response;
-        }
-
-        response.setCode(ResponseCode.SYSTEM_ERROR);
-        return response;
-    }
-    private RemotingCommand getProducerConnectionList(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand getProducerConnectionList(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         final GetProducerConnectionListRequestHeader requestHeader =
             (GetProducerConnectionListRequestHeader) request.decodeCommandCustomHeader(GetProducerConnectionListRequestHeader.class);
 
         ProducerConnection bodydata = new ProducerConnection();
-        Map<Channel, ClientChannelInfo> channelInfoHashMap =
+        HashMap<Channel, ClientChannelInfo> channelInfoHashMap =
             this.brokerController.getProducerManager().getGroupChannelTable().get(requestHeader.getProducerGroup());
         if (channelInfoHashMap != null) {
             Iterator<Map.Entry<Channel, ClientChannelInfo>> it = channelInfoHashMap.entrySet().iterator();
@@ -899,8 +622,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand getConsumeStats(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand getConsumeStats(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         final GetConsumeStatsRequestHeader requestHeader =
             (GetConsumeStatsRequestHeader) request.decodeCommandCustomHeader(GetConsumeStatsRequestHeader.class);
@@ -921,11 +643,14 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
                 continue;
             }
 
+            /**
+
+             */
             {
                 SubscriptionData findSubscriptionData =
                     this.brokerController.getConsumerManager().findSubscriptionData(requestHeader.getConsumerGroup(), topic);
 
-                if (null == findSubscriptionData
+                if (null == findSubscriptionData //
                     && this.brokerController.getConsumerManager().findSubscriptionDataCount(requestHeader.getConsumerGroup()) > 0) {
                     log.warn("consumeStats, the consumer group[{}], topic[{}] not exist", requestHeader.getConsumerGroup(), topic);
                     continue;
@@ -940,13 +665,13 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
 
                 OffsetWrapper offsetWrapper = new OffsetWrapper();
 
-                long brokerOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, i);
+                long brokerOffset = this.brokerController.getMessageStore().getMaxOffsetInQuque(topic, i);
                 if (brokerOffset < 0)
                     brokerOffset = 0;
 
-                long consumerOffset = this.brokerController.getConsumerOffsetManager().queryOffset(
-                    requestHeader.getConsumerGroup(),
-                    topic,
+                long consumerOffset = this.brokerController.getConsumerOffsetManager().queryOffset(//
+                    requestHeader.getConsumerGroup(), //
+                    topic, //
                     i);
                 if (consumerOffset < 0)
                     consumerOffset = 0;
@@ -1008,19 +733,12 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
     private RemotingCommand getAllDelayOffset(ChannelHandlerContext ctx, RemotingCommand request) {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
 
-        if (!(this.brokerController.getMessageStore() instanceof DefaultMessageStore)) {
-            log.error("Delay offset not supported in this messagetore, client: {} ", ctx.channel().remoteAddress());
-            response.setCode(ResponseCode.SYSTEM_ERROR);
-            response.setRemark("Delay offset not supported in this messagetore");
-            return response;
-        }
-
         String content = ((DefaultMessageStore) this.brokerController.getMessageStore()).getScheduleMessageService().encode();
         if (content != null && content.length() > 0) {
             try {
                 response.setBody(content.getBytes(MixAll.DEFAULT_CHARSET));
             } catch (UnsupportedEncodingException e) {
-                log.error("Get all delay offset from master error.", e);
+                log.error("get all delay offset from master error.", e);
 
                 response.setCode(ResponseCode.SYSTEM_ERROR);
                 response.setRemark("UnsupportedEncodingException " + e);
@@ -1039,8 +757,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    public RemotingCommand resetOffset(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    public RemotingCommand resetOffset(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final ResetOffsetRequestHeader requestHeader =
             (ResetOffsetRequestHeader) request.decodeCommandCustomHeader(ResetOffsetRequestHeader.class);
         log.info("[reset-offset] reset offset started by {}. topic={}, group={}, timestamp={}, isForce={}",
@@ -1057,8 +774,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
             requestHeader.getTimestamp(), requestHeader.isForce(), isC);
     }
 
-    public RemotingCommand getConsumerStatus(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    public RemotingCommand getConsumerStatus(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final GetConsumerStatusRequestHeader requestHeader =
             (GetConsumerStatusRequestHeader) request.decodeCommandCustomHeader(GetConsumerStatusRequestHeader.class);
 
@@ -1069,8 +785,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
             requestHeader.getClientAddr());
     }
 
-    private RemotingCommand queryTopicConsumeByWho(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand queryTopicConsumeByWho(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         QueryTopicConsumeByWhoRequestHeader requestHeader =
             (QueryTopicConsumeByWhoRequestHeader) request.decodeCommandCustomHeader(QueryTopicConsumeByWhoRequestHeader.class);
@@ -1092,8 +807,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand registerFilterServer(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand registerFilterServer(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(RegisterFilterServerResponseHeader.class);
         final RegisterFilterServerResponseHeader responseHeader = (RegisterFilterServerResponseHeader) response.readCustomHeader();
         final RegisterFilterServerRequestHeader requestHeader =
@@ -1109,8 +823,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand queryConsumeTimeSpan(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand queryConsumeTimeSpan(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         QueryConsumeTimeSpanRequestHeader requestHeader =
             (QueryConsumeTimeSpanRequestHeader) request.decodeCommandCustomHeader(QueryConsumeTimeSpanRequestHeader.class);
@@ -1135,7 +848,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
             long minTime = this.brokerController.getMessageStore().getEarliestMessageTime(topic, i);
             timeSpan.setMinTimeStamp(minTime);
 
-            long max = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, i);
+            long max = this.brokerController.getMessageStore().getMaxOffsetInQuque(topic, i);
             long maxTime = this.brokerController.getMessageStore().getMessageStoreTimeStamp(topic, i, max - 1);
             timeSpan.setMaxTimeStamp(maxTime);
 
@@ -1149,7 +862,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
             }
             timeSpan.setConsumeTimeStamp(consumeTime);
 
-            long maxBrokerOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(requestHeader.getTopic(), i);
+            long maxBrokerOffset = this.brokerController.getMessageStore().getMaxOffsetInQuque(requestHeader.getTopic(), i);
             if (consumerOffset < maxBrokerOffset) {
                 long nextTime = this.brokerController.getMessageStore().getMessageStoreTimeStamp(topic, i, consumerOffset);
                 timeSpan.setDelayTime(System.currentTimeMillis() - nextTime);
@@ -1169,7 +882,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
 
-        Set<String> topics = TopicValidator.getSystemTopicSet();
+        Set<String> topics = this.brokerController.getTopicConfigManager().getSystemTopic();
         TopicList topicList = new TopicList();
         topicList.setTopicList(topics);
         response.setBody(topicList.encode());
@@ -1188,16 +901,6 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    public RemotingCommand deleteExpiredCommitLog() {
-        log.warn("invoke deleteExpiredCommitLog start.");
-        final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        brokerController.getMessageStore().executeDeleteFilesManually();
-        log.warn("invoke deleteExpiredCommitLog end.");
-        response.setCode(ResponseCode.SUCCESS);
-        response.setRemark(null);
-        return response;
-    }
-
     public RemotingCommand cleanUnusedTopic() {
         log.warn("invoke cleanUnusedTopic start.");
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
@@ -1208,8 +911,10 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand getConsumerRunningInfo(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    /**
+
+     */
+    private RemotingCommand getConsumerRunningInfo(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final GetConsumerRunningInfoRequestHeader requestHeader =
             (GetConsumerRunningInfoRequestHeader) request.decodeCommandCustomHeader(GetConsumerRunningInfoRequestHeader.class);
 
@@ -1217,8 +922,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
             requestHeader.getClientId());
     }
 
-    private RemotingCommand queryCorrectionOffset(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand queryCorrectionOffset(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         QueryCorrectionOffsetHeader requestHeader =
             (QueryCorrectionOffsetHeader) request.decodeCommandCustomHeader(QueryCorrectionOffsetHeader.class);
@@ -1245,8 +949,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand consumeMessageDirectly(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand consumeMessageDirectly(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final ConsumeMessageDirectlyResultRequestHeader requestHeader = (ConsumeMessageDirectlyResultRequestHeader) request
             .decodeCommandCustomHeader(ConsumeMessageDirectlyResultRequestHeader.class);
 
@@ -1270,8 +973,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
             requestHeader.getClientId());
     }
 
-    private RemotingCommand cloneGroupOffset(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand cloneGroupOffset(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         CloneGroupOffsetRequestHeader requestHeader =
             (CloneGroupOffsetRequestHeader) request.decodeCommandCustomHeader(CloneGroupOffsetRequestHeader.class);
@@ -1291,6 +993,9 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
                 continue;
             }
 
+            /**
+
+             */
             if (!requestHeader.isOffline()) {
 
                 SubscriptionData findSubscriptionData =
@@ -1311,12 +1016,11 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         return response;
     }
 
-    private RemotingCommand ViewBrokerStatsData(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    private RemotingCommand ViewBrokerStatsData(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final ViewBrokerStatsDataRequestHeader requestHeader =
             (ViewBrokerStatsDataRequestHeader) request.decodeCommandCustomHeader(ViewBrokerStatsDataRequestHeader.class);
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        MessageStore messageStore = this.brokerController.getMessageStore();
+        DefaultMessageStore messageStore = (DefaultMessageStore) this.brokerController.getMessageStore();
 
         StatsItem statsItem = messageStore.getBrokerStatsManager().getStatsItem(requestHeader.getStatsName(), requestHeader.getStatsKey());
         if (null == statsItem) {
@@ -1366,7 +1070,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         GetConsumeStatsInBrokerHeader requestHeader =
             (GetConsumeStatsInBrokerHeader) request.decodeCommandCustomHeader(GetConsumeStatsInBrokerHeader.class);
         boolean isOrder = requestHeader.isOrder();
-        ConcurrentMap<String, SubscriptionGroupConfig> subscriptionGroups =
+        ConcurrentHashMap<String, SubscriptionGroupConfig> subscriptionGroups =
             brokerController.getSubscriptionGroupManager().getSubscriptionGroupTable();
 
         List<Map<String/* subscriptionGroupName */, List<ConsumeStats>>> brokerConsumeStatsList =
@@ -1389,11 +1093,13 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
                 if (isOrder && !topicConfig.isOrder()) {
                     continue;
                 }
+                /**
 
+                 */
                 {
                     SubscriptionData findSubscriptionData = this.brokerController.getConsumerManager().findSubscriptionData(group, topic);
 
-                    if (null == findSubscriptionData
+                    if (null == findSubscriptionData //
                         && this.brokerController.getConsumerManager().findSubscriptionDataCount(group) > 0) {
                         log.warn("consumeStats, the consumer group[{}], topic[{}] not exist", group, topic);
                         continue;
@@ -1406,12 +1112,12 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
                     mq.setBrokerName(this.brokerController.getBrokerConfig().getBrokerName());
                     mq.setQueueId(i);
                     OffsetWrapper offsetWrapper = new OffsetWrapper();
-                    long brokerOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, i);
+                    long brokerOffset = this.brokerController.getMessageStore().getMaxOffsetInQuque(topic, i);
                     if (brokerOffset < 0)
                         brokerOffset = 0;
-                    long consumerOffset = this.brokerController.getConsumerOffsetManager().queryOffset(
-                        group,
-                        topic,
+                    long consumerOffset = this.brokerController.getConsumerOffsetManager().queryOffset(//
+                        group, //
+                        topic, //
                         i);
                     if (consumerOffset < 0)
                         consumerOffset = 0;
@@ -1471,21 +1177,11 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         runtimeInfo.put("pullThreadPoolQueueCapacity",
             String.valueOf(this.brokerController.getBrokerConfig().getPullThreadPoolQueueCapacity()));
 
-        runtimeInfo.put("queryThreadPoolQueueSize", String.valueOf(this.brokerController.getQueryThreadPoolQueue().size()));
-        runtimeInfo.put("queryThreadPoolQueueCapacity",
-            String.valueOf(this.brokerController.getBrokerConfig().getQueryThreadPoolQueueCapacity()));
-
-        runtimeInfo.put("EndTransactionQueueSize", String.valueOf(this.brokerController.getEndTransactionThreadPoolQueue().size()));
-        runtimeInfo.put("EndTransactionThreadPoolQueueCapacity",
-            String.valueOf(this.brokerController.getBrokerConfig().getEndTransactionPoolQueueCapacity()));
-
         runtimeInfo.put("dispatchBehindBytes", String.valueOf(this.brokerController.getMessageStore().dispatchBehindBytes()));
         runtimeInfo.put("pageCacheLockTimeMills", String.valueOf(this.brokerController.getMessageStore().lockTimeMills()));
 
         runtimeInfo.put("sendThreadPoolQueueHeadWaitTimeMills", String.valueOf(this.brokerController.headSlowTimeMills4SendThreadPoolQueue()));
         runtimeInfo.put("pullThreadPoolQueueHeadWaitTimeMills", String.valueOf(this.brokerController.headSlowTimeMills4PullThreadPoolQueue()));
-        runtimeInfo.put("queryThreadPoolQueueHeadWaitTimeMills", String.valueOf(this.brokerController.headSlowTimeMills4QueryThreadPoolQueue()));
-
         runtimeInfo.put("earliestMessageTimeStamp", String.valueOf(this.brokerController.getMessageStore().getEarliestMessageTime()));
         runtimeInfo.put("startAcceptSendRequestTimeStamp", String.valueOf(this.brokerController.getBrokerConfig().getStartAcceptSendRequestTimeStamp()));
         if (this.brokerController.getMessageStore() instanceof DefaultMessageStore) {
@@ -1499,16 +1195,16 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
 
         java.io.File commitLogDir = new java.io.File(this.brokerController.getMessageStoreConfig().getStorePathRootDir());
         if (commitLogDir.exists()) {
-            runtimeInfo.put("commitLogDirCapacity", String.format("Total : %s, Free : %s.", MixAll.humanReadableByteCount(commitLogDir.getTotalSpace(), false), MixAll.humanReadableByteCount(commitLogDir.getUsableSpace(), false)));
+            runtimeInfo.put("commitLogDirCapacity", String.format("Total : %s, Free : %s.", MixAll.humanReadableByteCount(commitLogDir.getTotalSpace(), false), MixAll.humanReadableByteCount(commitLogDir.getFreeSpace(), false)));
         }
 
         return runtimeInfo;
     }
 
-    private RemotingCommand callConsumer(
-        final int requestCode,
-        final RemotingCommand request,
-        final String consumerGroup,
+    private RemotingCommand callConsumer(//
+        final int requestCode, //
+        final RemotingCommand request, //
+        final String consumerGroup, //
         final String clientId) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         ClientChannelInfo clientChannelInfo = this.brokerController.getConsumerManager().findChannel(consumerGroup, clientId);
@@ -1521,8 +1217,8 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
 
         if (clientChannelInfo.getVersion() < MQVersion.Version.V3_1_8_SNAPSHOT.ordinal()) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
-            response.setRemark(String.format("The Consumer <%s> Version <%s> too low to finish, please upgrade it to V3_1_8_SNAPSHOT",
-                clientId,
+            response.setRemark(String.format("The Consumer <%s> Version <%s> too low to finish, please upgrade it to V3_1_8_SNAPSHOT", //
+                clientId, //
                 MQVersion.getVersionDesc(clientChannelInfo.getVersion())));
             return response;
         }
@@ -1546,150 +1242,4 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor {
         }
     }
 
-    private RemotingCommand queryConsumeQueue(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
-        QueryConsumeQueueRequestHeader requestHeader =
-            (QueryConsumeQueueRequestHeader) request.decodeCommandCustomHeader(QueryConsumeQueueRequestHeader.class);
-
-        RemotingCommand response = RemotingCommand.createResponseCommand(null);
-
-        ConsumeQueue consumeQueue = this.brokerController.getMessageStore().getConsumeQueue(requestHeader.getTopic(),
-            requestHeader.getQueueId());
-        if (consumeQueue == null) {
-            response.setCode(ResponseCode.SYSTEM_ERROR);
-            response.setRemark(String.format("%d@%s is not exist!", requestHeader.getQueueId(), requestHeader.getTopic()));
-            return response;
-        }
-        response.setCode(ResponseCode.SUCCESS);
-
-        QueryConsumeQueueResponseBody body = new QueryConsumeQueueResponseBody();
-        body.setMaxQueueIndex(consumeQueue.getMaxOffsetInQueue());
-        body.setMinQueueIndex(consumeQueue.getMinOffsetInQueue());
-
-        MessageFilter messageFilter = null;
-        if (requestHeader.getConsumerGroup() != null) {
-            SubscriptionData subscriptionData = this.brokerController.getConsumerManager().findSubscriptionData(
-                requestHeader.getConsumerGroup(), requestHeader.getTopic()
-            );
-            body.setSubscriptionData(subscriptionData);
-            if (subscriptionData == null) {
-                body.setFilterData(String.format("%s@%s is not online!", requestHeader.getConsumerGroup(), requestHeader.getTopic()));
-            } else {
-                ConsumerFilterData filterData = this.brokerController.getConsumerFilterManager()
-                    .get(requestHeader.getTopic(), requestHeader.getConsumerGroup());
-                body.setFilterData(JSON.toJSONString(filterData, true));
-
-                messageFilter = new ExpressionMessageFilter(subscriptionData, filterData,
-                    this.brokerController.getConsumerFilterManager());
-            }
-        }
-
-        SelectMappedBufferResult result = consumeQueue.getIndexBuffer(requestHeader.getIndex());
-        if (result == null) {
-            response.setRemark(String.format("Index %d of %d@%s is not exist!", requestHeader.getIndex(), requestHeader.getQueueId(), requestHeader.getTopic()));
-            return response;
-        }
-        try {
-            List<ConsumeQueueData> queues = new ArrayList<>();
-            for (int i = 0; i < result.getSize() && i < requestHeader.getCount() * ConsumeQueue.CQ_STORE_UNIT_SIZE; i += ConsumeQueue.CQ_STORE_UNIT_SIZE) {
-                ConsumeQueueData one = new ConsumeQueueData();
-                one.setPhysicOffset(result.getByteBuffer().getLong());
-                one.setPhysicSize(result.getByteBuffer().getInt());
-                one.setTagsCode(result.getByteBuffer().getLong());
-
-                if (!consumeQueue.isExtAddr(one.getTagsCode())) {
-                    queues.add(one);
-                    continue;
-                }
-
-                ConsumeQueueExt.CqExtUnit cqExtUnit = consumeQueue.getExt(one.getTagsCode());
-                if (cqExtUnit != null) {
-                    one.setExtendDataJson(JSON.toJSONString(cqExtUnit));
-                    if (cqExtUnit.getFilterBitMap() != null) {
-                        one.setBitMap(BitsArray.create(cqExtUnit.getFilterBitMap()).toString());
-                    }
-                    if (messageFilter != null) {
-                        one.setEval(messageFilter.isMatchedByConsumeQueue(cqExtUnit.getTagsCode(), cqExtUnit));
-                    }
-                } else {
-                    one.setMsg("Cq extend not exist!addr: " + one.getTagsCode());
-                }
-
-                queues.add(one);
-            }
-            body.setQueueData(queues);
-        } finally {
-            result.release();
-        }
-        response.setBody(body.encode());
-        return response;
-    }
-
-    private RemotingCommand resumeCheckHalfMessage(ChannelHandlerContext ctx,
-        RemotingCommand request)
-        throws RemotingCommandException {
-        final ResumeCheckHalfMessageRequestHeader requestHeader = (ResumeCheckHalfMessageRequestHeader) request
-            .decodeCommandCustomHeader(ResumeCheckHalfMessageRequestHeader.class);
-        final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        SelectMappedBufferResult selectMappedBufferResult = null;
-        try {
-            MessageId messageId = MessageDecoder.decodeMessageId(requestHeader.getMsgId());
-            selectMappedBufferResult = this.brokerController.getMessageStore()
-                .selectOneMessageByOffset(messageId.getOffset());
-            MessageExt msg = MessageDecoder.decode(selectMappedBufferResult.getByteBuffer());
-            msg.putUserProperty(MessageConst.PROPERTY_TRANSACTION_CHECK_TIMES, String.valueOf(0));
-            PutMessageResult putMessageResult = this.brokerController.getMessageStore()
-                .putMessage(toMessageExtBrokerInner(msg));
-            if (putMessageResult != null
-                && putMessageResult.getPutMessageStatus() == PutMessageStatus.PUT_OK) {
-                log.info(
-                    "Put message back to RMQ_SYS_TRANS_HALF_TOPIC. real topic={}",
-                    msg.getUserProperty(MessageConst.PROPERTY_REAL_TOPIC));
-                response.setCode(ResponseCode.SUCCESS);
-                response.setRemark(null);
-            } else {
-                log.error("Put message back to RMQ_SYS_TRANS_HALF_TOPIC failed.");
-                response.setCode(ResponseCode.SYSTEM_ERROR);
-                response.setRemark("Put message back to RMQ_SYS_TRANS_HALF_TOPIC failed.");
-            }
-        } catch (Exception e) {
-            log.error("Exception was thrown when putting message back to RMQ_SYS_TRANS_HALF_TOPIC.");
-            response.setCode(ResponseCode.SYSTEM_ERROR);
-            response.setRemark("Exception was thrown when putting message back to RMQ_SYS_TRANS_HALF_TOPIC.");
-        } finally {
-            if (selectMappedBufferResult != null) {
-                selectMappedBufferResult.release();
-            }
-        }
-        return response;
-    }
-
-    private MessageExtBrokerInner toMessageExtBrokerInner(MessageExt msgExt) {
-        MessageExtBrokerInner inner = new MessageExtBrokerInner();
-        inner.setTopic(TransactionalMessageUtil.buildHalfTopic());
-        inner.setBody(msgExt.getBody());
-        inner.setFlag(msgExt.getFlag());
-        MessageAccessor.setProperties(inner, msgExt.getProperties());
-        inner.setPropertiesString(MessageDecoder.messageProperties2String(msgExt.getProperties()));
-        inner.setTagsCode(MessageExtBrokerInner.tagsString2tagsCode(msgExt.getTags()));
-        inner.setQueueId(0);
-        inner.setSysFlag(msgExt.getSysFlag());
-        inner.setBornHost(msgExt.getBornHost());
-        inner.setBornTimestamp(msgExt.getBornTimestamp());
-        inner.setStoreHost(msgExt.getStoreHost());
-        inner.setReconsumeTimes(msgExt.getReconsumeTimes());
-        inner.setMsgId(msgExt.getMsgId());
-        inner.setWaitStoreMsgOK(false);
-        return inner;
-    }
-
-    private boolean validateSlave(RemotingCommand response) {
-        if (this.brokerController.getMessageStoreConfig().getBrokerRole().equals(BrokerRole.SLAVE)) {
-            response.setCode(ResponseCode.SYSTEM_ERROR);
-            response.setRemark("Can't modify topic or subscription group from slave broker, " +
-                "please execute it from master broker.");
-            return true;
-        }
-        return false;
-    }
 }

@@ -149,13 +149,14 @@ public class UpdateTopicSubCommand implements SubCommand {
                 System.out.printf("%s", topicConfig);
                 return;
 
-            } else if (commandLine.hasOption('c')) {
+            } else if (commandLine.hasOption('c')) {//创建Topic命令  ./mqadmin updateTopic -n 192.168.77.129:9876 -c DefaultCluster -t TestTopic
+                //-c参数，拿到broker集群名称
                 String clusterName = commandLine.getOptionValue('c').trim();
 
                 defaultMQAdminExt.start();
 
                 Set<String> masterSet =
-                    CommandUtil.fetchMasterAddrByClusterName(defaultMQAdminExt, clusterName);
+                    CommandUtil.fetchMasterAddrByClusterName(defaultMQAdminExt, clusterName);//获取broker集群下所有master的brokerName
                 for (String addr : masterSet) {
                     defaultMQAdminExt.createAndUpdateTopicConfig(addr, topicConfig);
                     System.out.printf("create topic to %s success.%n", addr);

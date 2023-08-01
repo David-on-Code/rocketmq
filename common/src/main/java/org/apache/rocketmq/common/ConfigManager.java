@@ -70,7 +70,7 @@ public abstract class ConfigManager {
     public synchronized void persist() {
         String jsonString = this.encode(true);
         if (jsonString != null) {
-            String fileName = this.configFilePath();
+            String fileName = this.configFilePath();//
             try {
                 MixAll.string2File(jsonString, fileName);
             } catch (IOException e) {

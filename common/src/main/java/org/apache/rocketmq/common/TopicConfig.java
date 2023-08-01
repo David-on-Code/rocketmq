@@ -18,15 +18,16 @@ package org.apache.rocketmq.common;
 
 import org.apache.rocketmq.common.constant.PermName;
 
+//客户端向Broker提交的Topic信息封装在了TopicConfig里面
 public class TopicConfig {
     private static final String SEPARATOR = " ";
-    public static int defaultReadQueueNums = 16;
-    public static int defaultWriteQueueNums = 16;
-    private String topicName;
+    public static int defaultReadQueueNums = 16;// 默认读队列数
+    public static int defaultWriteQueueNums = 16;// 默认写队列数
+    private String topicName;// topic名称
     private int readQueueNums = defaultReadQueueNums;
     private int writeQueueNums = defaultWriteQueueNums;
-    private int perm = PermName.PERM_READ | PermName.PERM_WRITE;
-    private TopicFilterType topicFilterType = TopicFilterType.SINGLE_TAG;
+    private int perm = PermName.PERM_READ | PermName.PERM_WRITE;// 操作权限，这里初始化是可读可写
+    private TopicFilterType topicFilterType = TopicFilterType.SINGLE_TAG;// topic过滤类型，默认单tag
     private int topicSysFlag = 0;
     private boolean order = false;
 

@@ -40,6 +40,8 @@ import org.apache.rocketmq.common.topic.TopicValidator;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+
+//TopicConfig在broker端是保存在TopicConfigManager的
 public class TopicConfigManager extends ConfigManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private static final long LOCK_TIMEOUT_MILLIS = 3000;
@@ -48,7 +50,7 @@ public class TopicConfigManager extends ConfigManager {
     private transient final Lock topicConfigTableLock = new ReentrantLock();
 
     private final ConcurrentMap<String, TopicConfig> topicConfigTable =
-        new ConcurrentHashMap<String, TopicConfig>(1024);
+        new ConcurrentHashMap<String, TopicConfig>(1024);// topic信息保存在这里
     private final DataVersion dataVersion = new DataVersion();
     private transient BrokerController brokerController;
 
@@ -354,6 +356,7 @@ public class TopicConfigManager extends ConfigManager {
         }
     }
 
+    //更新完内存中的topic信息后，broker还会以json格式将其持久化到磁盘上。
     public void updateTopicConfig(final TopicConfig topicConfig) {
         TopicConfig old = this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
         if (old != null) {
