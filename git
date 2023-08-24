@@ -1,0 +1,6 @@
+ # 确认你的远程仓库列表中已经包含了原仓库：
+ git remote -v
+#添加原仓库（upstream）为远程仓库：
+ git remote add upstream https://github.com/apache/rocketmq.git
+
+git fetch upstream
